@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NYC Transit: The Return to Routine</title>
+    <!-- Load Chart.js for visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f8f9fa;
+            color: #333;
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            max-width: 900px;
+            width: 100%;
+        }
+        h1 { margin-top: 0; color: #111; }
+        p { color: #555; line-height: 1.5; margin-bottom: 25px; }
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f1f3f5;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-grow: 1;
+        }
+        input[type=range] {
+            flex-grow: 1;
+            max-width: 300px;
+            cursor: pointer;
+        }
+        #yearLabel {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #0039A6; /* MTA Blue */
+            min-width: 60px;
+        }
+        .toggle-btn {
+            background: #fff;
+            border: 2px solid #ced4da;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: 0.2s;
+        }
+        .toggle-btn.active {
+            background: #0039A6;
+            color: white;
+            border-color: #0039A6;
+        }
+        canvas { max-height: 450px; }
+        .caption {
+            font-size: 0.9rem;
+            color: #777;
+            text-align: center;
+            margin-top: 15px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>The Mid-Week Shift: NYC Commuter Recovery</h1>
+    <p>
+        Following the 2020 collapse, the MTA network experienced a fundamental shift in daily behavior. 
+        Use the slider below to watch how the traditional 5-day commute morphed into a distinct mid-week peak (Tuesday-Thursday). 
+        Hover over any day to see exact ridership numbers and how they compare to pre-pandemic baselines.
+    </p>
+
+    <!-- Interactive Controls -->
+    <div class="controls">
+        <div class="slider-container">
+            <label for="yearSlider" style="font-weight: bold;">Select Year:</label>
+            <input type="range" id="yearSlider" min="2020" max="2025" step="1" value="2020">
+            <span id="yearLabel">2020</span>
+        </div>
+        <div>
+            <button id="toggleModeBtn" class="toggle-btn active">Switch to LIRR Data</button>
+        </div>
+    </div>
+
+    <!-- The Chart -->
+    <canvas id="ridershipChart"></canvas>
+    
+    <div class="caption">
+        Data aggregated from NYC Open Data (MTA Daily Ridership Beginning 2020). 
+        <br>Note: 2025 data represents a partial year average.
+    </div>
+</div>
+
+<script>
+    // 1. The Pre-Aggregated, Cleaned Dataset from Assignment 4.5
+    const mtaData = {
+      "2020": { "subway_millions": [1.36, 1.42, 1.43, 1.37, 1.35, 0.85, 0.69], "subway_pct": [25.3, 25.7, 26.6, 25.0, 26.2, 27.0, 28.2], "lirr_riders": [72705, 70098, 69482, 66679, 65824, 33170, 29218], "lirr_pct": [24.4, 22.0, 23.2, 22.2, 24.4, 27.7, 30.0] },
+      "2021": { "subway_millions": [2.17, 2.36, 2.43, 2.37, 2.36, 1.62, 1.25], "subway_pct": [42.7, 43.0, 44.0, 44.9, 46.2, 52.4, 51.8], "lirr_riders": [110431, 113223, 113582, 111539, 111061, 62601, 53693], "lirr_pct": [40.6, 35.6, 35.7, 39.1, 41.3, 53.2, 55.7] },
+      "2022": { "subway_millions": [2.84, 3.23, 3.31, 3.28, 3.11, 2.05, 1.62], "subway_pct": [57.5, 58.7, 60.1, 60.1, 58.7, 66.1, 67.6], "lirr_riders": [155279, 175531, 174904, 170315, 163910, 85529, 72864], "lirr_pct": [59.5, 55.4, 55.1, 55.0, 56.6, 73.2, 76.6] },
+      "2023": { "subway_millions": [3.19, 3.7, 3.79, 3.74, 3.44, 2.35, 1.88], "subway_pct": [64.8, 68.1, 68.9, 68.6, 65.1, 76.2, 78.3], "lirr_riders": [187793, 217675, 219104, 212790, 202584, 112946, 93060], "lirr_pct": [70.2, 70.0, 69.2, 68.8, 70.2, 96.7, 98.1] },
+      "2024": { "subway_millions": [3.37, 3.8, 3.86, 3.83, 3.56, 2.45, 1.96], "subway_pct": [67.4, 70.2, 71.9, 71.1, 65.8, 79.3, 81.5], "lirr_riders": [221565, 246923, 244461, 240261, 234716, 131310, 111152], "lirr_pct": [81.1, 80.8, 81.5, 79.2, 77.7, 113.1, 116.9] },
+      "2025": { "subway_millions": [3.44, 3.78, 2.8, 3.56, 3.41, 2.32, 1.79], "subway_pct": [67.0, 74.0, 79.5, 69.5, 66.0, 86.0, 86.0], "lirr_riders": [229503, 245930, 164881, 220359, 203652, 117004, 96683], "lirr_pct": [76.0, 81.0, 94.0, 73.0, 67.0, 120.0, 117.0] }
+    };
+
+    const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    let currentMode = 'subway'; // starts with subway
+
+    // 2. Setup Chart.js
+    const ctx = document.getElementById('ridershipChart').getContext('2d');
+    const myChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: days,
+            datasets: [{
+                label: 'Average Subway Riders (Millions)',
+                data: mtaData["2020"].subway_millions,
+                backgroundColor: '#0039A6', // Subway Blue
+                borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { 
+                    beginAtZero: true, 
+                    max: 4.5, // Lock Y-axis so the animation shows real growth
+                    title: { display: true, text: 'Ridership (Millions)', font: {weight: 'bold'} }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let val = context.raw;
+                            let year = document.getElementById('yearSlider').value;
+                            let index = context.dataIndex;
+                            let pct = currentMode === 'subway' ? mtaData[year].subway_pct[index] : mtaData[year].lirr_pct[index];
+                            let labelStr = currentMode === 'subway' ? `${val} Million Riders` : `${val.toLocaleString()} Riders`;
+                            return [labelStr, `Recovery: ${pct}% of Pre-Pandemic`];
+                        }
+                    }
+                }
+            },
+            animation: { duration: 600, easing: 'easeOutQuart' }
+        }
+    });
+
+    // 3. Interaction Logic: Update chart when slider moves
+    document.getElementById('yearSlider').addEventListener('input', function(e) {
+        let year = e.target.value;
+        document.getElementById('yearLabel').innerText = year;
+        updateChart(year, currentMode);
+    });
+
+    // 4. Interaction Logic: Toggle between Subway and LIRR
+    document.getElementById('toggleModeBtn').addEventListener('click', function(e) {
+        if(currentMode === 'subway') {
+            currentMode = 'lirr';
+            this.innerText = 'Switch to Subway Data';
+            this.style.backgroundColor = '#6E3289'; // LIRR Purple
+            this.style.borderColor = '#6E3289';
+            document.getElementById('yearLabel').style.color = '#6E3289';
+        } else {
+            currentMode = 'subway';
+            this.innerText = 'Switch to LIRR Data';
+            this.style.backgroundColor = '#0039A6'; // Subway Blue
+            this.style.borderColor = '#0039A6';
+            document.getElementById('yearLabel').style.color = '#0039A6';
+        }
+        let year = document.getElementById('yearSlider').value;
+        updateChart(year, currentMode);
+    });
+
+    // Helper function to push data to chart
+    function updateChart(year, mode) {
+        if(mode === 'subway') {
+            myChart.data.datasets[0].label = 'Average Subway Riders (Millions)';
+            myChart.data.datasets[0].data = mtaData[year].subway_millions;
+            myChart.data.datasets[0].backgroundColor = '#0039A6';
+            myChart.options.scales.y.max = 4.5;
+            myChart.options.scales.y.title.text = 'Ridership (Millions)';
+        } else {
+            myChart.data.datasets[0].label = 'Average LIRR Riders';
+            myChart.data.datasets[0].data = mtaData[year].lirr_riders;
+            myChart.data.datasets[0].backgroundColor = '#6E3289';
+            myChart.options.scales.y.max = 280000;
+            myChart.options.scales.y.title.text = 'Total Riders';
+        }
+        myChart.update();
+    }
+</script>
+</body>
+</html>
